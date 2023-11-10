@@ -1,0 +1,8 @@
+/.idea
+/**/*.so
+/.coverage
+/venv
+/build
+/.mypy_cache
+__pycache__
+/**/*.c
