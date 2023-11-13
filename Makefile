@@ -1,4 +1,4 @@
-.PHONY: all lint test compile
+.PHONY: all lint test compile build-dist upload install-tools requirements
 
 all: compile lint test
 
@@ -11,3 +11,18 @@ test:
 compile:
 	@python setup.py build_ext --inplace
 	@echo "-------------------------------------------------"
+
+build-dist:
+	rm -rf ./dist
+	python3 setup.py sdist
+
+upload:
+	twine upload -r pypi dist/*
+
+install-tools:
+	pip3 install mypy
+	pip3 install coverage
+
+requirements:
+	pip3 freeze >requirements.txt
+
