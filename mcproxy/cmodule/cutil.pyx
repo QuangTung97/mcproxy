@@ -13,9 +13,6 @@ cdef void free_object(void *ptr, size_t n) noexcept:
     global_current_mem -= n
     free(ptr)
 
-cdef size_t get_current_mem() noexcept:
+def py_get_mem():
     global global_current_mem
     return global_current_mem
-
-def py_get_mem():
-    return get_current_mem()
