@@ -1,5 +1,7 @@
 from libc.string cimport memcpy
+
 from cutil cimport alloc_object, free_object
+
 
 cdef list global_conns = list() # list of connections
 cdef list global_free_conns = list() # list of indices
@@ -110,7 +112,11 @@ cdef enum PARSER_STATE:
     P_MGET_VA
 
     P_VERSION
+    P_VERSION_SPACE
     P_VERSION_VALUE
+
+    P_HANDLE_CR
+    P_HANDLE_LF
 
 
 cdef enum PARSER_CMD:
@@ -128,6 +134,7 @@ cdef struct Parser:
     int data_len
 
     PARSER_CMD current
+    PARSER_CMD next_cmd
 
     char tmp_data[TMP_DATA_MAX_LEN]
     int tmp_data_len
@@ -146,7 +153,8 @@ cdef int parser_handle_init(Parser *p) noexcept:
         p.state = P_HANDLE_V
         return 0
 
-    return 0
+    p.last_error = 'invalid response'
+    return -1
 
 cdef int parser_handle_v(Parser *p) noexcept:
     if p.data[0] == 'A':
@@ -157,6 +165,7 @@ cdef int parser_handle_v(Parser *p) noexcept:
     if p.data[0] == 'E':
         parser_inc(p)
         p.state = P_VERSION
+        p.tmp_data_len = 0
         return 0
 
     return 0
@@ -166,6 +175,13 @@ cdef int is_alphabet(char c) noexcept:
     if c >= 'A' and c <= 'Z':
         return 1
     if c >= 'a' and c <= 'z':
+        return 1
+    return 0
+
+cdef int is_space(char c) noexcept:
+    if c == ' ':
+        return 1
+    if c == '\t':
         return 1
     return 0
 
@@ -184,20 +200,86 @@ cdef int version_suffix_len = len(version_suffix)
 cdef const char *version_suffix_c = version_suffix
 
 
-cdef parser_handle_version(Parser *p):
+cdef int parser_handle_version(Parser *p) noexcept:
+    cdef int ret
+
     if is_alphabet(p.data[0]):
+        ret = parser_append_tmp(p, p.data[0])
         parser_inc(p)
-        return parser_append_tmp(p, p.data[0])
+        return ret
     
     if bytes_equal(p.tmp_data, p.tmp_data_len, version_suffix_c, version_suffix_len):
-        p.state = P_VERSION_VALUE
+        p.state = P_VERSION_SPACE
         return 0
     
+    p.last_error = 'invalid VERSION string'
+    return -1
+
+
+cdef int parser_handle_version_space(Parser *p) noexcept:
+    if is_space(p.data[0]):
+        parser_inc(p)
+        return 0
+
+    p.tmp_data_len = 0
+    p.state = P_VERSION_VALUE
     return 0
 
 
+cdef int parser_handle_version_value(Parser *p) noexcept:
+    if p.data[0] == '\r':
+        p.state = P_HANDLE_CR
+        p.next_cmd = P_CMD_VERSION
+        return 0
+    parser_append_tmp(p, p.data[0])
+    parser_inc(p)
+    return 0
+
+
+cdef int parser_handle_cr(Parser *p) noexcept:
+    if p.data[0] == '\r':
+        parser_inc(p)
+        p.state = P_HANDLE_LF
+        return 0
+    
+    p.last_error = 'invalid CR state'
+    return -1
+
+
+cdef int parser_handle_lf(Parser *p) noexcept:
+    if p.data[0] == '\n':
+        parser_inc(p)
+        p.current = p.next_cmd
+        p.state = P_INIT
+        return 0
+    
+    p.last_error = 'invalid LF state'
+    return -1
+
+
 cdef PARSER_CMD parser_get_cmd(Parser *p):
-    return P_NO_CMD
+    return p.current
+
+
+cdef int parser_handle_step(Parser *p) noexcept:
+    if p.state == P_INIT:
+        return parser_handle_init(p)
+    elif p.state == P_HANDLE_V:
+        return parser_handle_v(p)
+    elif p.state == P_VERSION:
+        return parser_handle_version(p)
+    elif p.state == P_VERSION_SPACE:
+        return parser_handle_version_space(p)
+    elif p.state == P_VERSION_VALUE:
+        return parser_handle_version_value(p)
+    elif p.state == P_HANDLE_CR:
+        return parser_handle_cr(p)
+    elif p.state == P_HANDLE_LF:
+        return parser_handle_lf(p)
+    
+    p.last_error = 'invalid parser state'
+    return -1
+
 
 
 cdef int parser_handle(Parser *p, const char *data, int n) noexcept:
@@ -206,24 +288,16 @@ cdef int parser_handle(Parser *p, const char *data, int n) noexcept:
     p.data = data
     p.data_len = n
 
-    while p.data_len > 0:
-        if p.state == P_INIT:
-            ret = parser_handle_init(p)
-            if ret:
-                return ret
-
-            p.data_len = 0
-            p.data = NULL
-        elif p.state == P_HANDLE_V:
-            ret = parser_handle_v(p)
-            if ret:
-                return ret
-        elif p.state == P_VERSION:
-            ret = parser_handle_version(p)
-            if ret:
-                return ret
+    while p.data_len > 0 and p.current == P_NO_CMD:
+        ret = parser_handle_step(p)
+        if ret:
+            return ret
 
     return 0
+
+
+cdef bytes parser_get_string(Parser *p) noexcept:
+    return p.tmp_data[:p.tmp_data_len]
 
 
 cdef class ParserTest:
@@ -237,6 +311,7 @@ cdef class ParserTest:
         p.data = NULL
         p.data_len = 0
 
+        p.next_cmd = P_NO_CMD
         p.current = P_NO_CMD
 
         p.tmp_data_len = 0
@@ -249,7 +324,18 @@ cdef class ParserTest:
         free_object(self.p, sizeof(Parser))
 
     def handle(self, bytes data):
-        parser_handle(self.p, data, len(data))
+        cdef int ret
+        cdef str err_str
+        ret = parser_handle(self.p, data, len(data))
+        if ret:
+            err_str = self.p.last_error.decode()
+            raise ValueError(err_str)
     
     def get(self):
         return parser_get_cmd(self.p)
+    
+    def get_string(self):
+        return parser_get_string(self.p)
+    
+    def get_len(self):
+        return self.p.data_len

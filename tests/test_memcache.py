@@ -51,9 +51,86 @@ class TestCMemParser(unittest.TestCase):
 
         self.assertEqual(0, p.get())
 
-        p.handle(b'VERSION 123\r\n')
+        p.handle(b'VERSION 123.abcd\r\n')
+
+        self.assertEqual(1, p.get())
+        self.assertEqual(b'123.abcd', p.get_string())
+        self.assertEqual(0, p.get_len())
 
         # check memory usage
         self.assertEqual(1024 + 40, cutil.py_get_mem())
         del p
         self.assertEqual(0, cutil.py_get_mem())
+
+    def test_version_split(self):
+        p = cmem.ParserTest()
+
+        self.assertEqual(0, p.get())
+
+        p.handle(b'V')
+        self.assertEqual(0, p.get())
+
+        p.handle(b'E')
+        self.assertEqual(0, p.get())
+
+        p.handle(b'R')
+        self.assertEqual(0, p.get())
+
+        p.handle(b'SION')
+        self.assertEqual(0, p.get())
+
+        p.handle(b'  ')
+        self.assertEqual(0, p.get())
+
+        p.handle(b'11.2')
+        self.assertEqual(0, p.get())
+
+        p.handle(b'2\r')
+        self.assertEqual(0, p.get())
+
+        p.handle(b'\nabcd')
+        self.assertEqual(1, p.get())
+
+        self.assertEqual(b'11.22', p.get_string())
+        self.assertEqual(4, p.get_len())
+
+    def test_version_missing_value(self):
+        p = cmem.ParserTest()
+
+        self.assertEqual(0, p.get())
+
+        p.handle(b'VERSION\r\n')
+
+        self.assertEqual(1, p.get())
+        self.assertEqual(b'', p.get_string())
+        self.assertEqual(0, p.get_len())
+
+    def test_version_empty(self):
+        p = cmem.ParserTest()
+
+        self.assertEqual(0, p.get())
+
+        p.handle(b'VERSION')
+
+        p.handle(b'')
+
+        p.handle(b'   123\r\n')
+
+        self.assertEqual(1, p.get())
+        self.assertEqual(b'123', p.get_string())
+        self.assertEqual(0, p.get_len())
+
+    def test_no_lf_after_cr(self):
+        p = cmem.ParserTest()
+
+        self.assertEqual(0, p.get())
+
+        p.handle(b'VERSION')
+
+        p.handle(b'')
+
+        with self.assertRaises(ValueError) as ex:
+            p.handle(b'   123\ra')
+
+        self.assertEqual(0, p.get())
+        self.assertEqual(('invalid LF state',), ex.exception.args)
