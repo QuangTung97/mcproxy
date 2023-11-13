@@ -325,10 +325,16 @@ cdef class ParserTest:
     def handle(self, bytes data):
         cdef int ret
         cdef str err_str
-        ret = parser_handle(self.p, data, len(data))
-        if ret:
-            err_str = self.p.last_error.decode()
-            raise ValueError(err_str)
+
+        cdef char *data_ptr = data
+        cdef int data_len = len(data)
+
+        with nogil:
+            ret = parser_handle(self.p, data_ptr, data_len)
+            if ret:
+                with gil:
+                    err_str = self.p.last_error.decode()
+                    raise ValueError(err_str)
     
     def get(self):
         return parser_get_cmd(self.p)
