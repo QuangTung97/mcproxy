@@ -199,13 +199,25 @@ cdef int num_from_str(const char *s, int n) noexcept nogil:
     return res
 
 
+cdef void parser_free_response(Parser *p) noexcept nogil:
+    if p.response_data != NULL:
+        free_object(<void *>p.response_data, p.response_data_len)
+
+
 cdef int parser_handle_va_num(Parser *p) noexcept nogil:
     cdef int ret
+    cdef char ch = p.data[0]
 
-    if is_digit(p.data[0]):
-        ret =  parser_append_tmp(p, p.data[0])
+    if is_digit(ch):
+        ret =  parser_append_tmp(p, ch)
         parser_inc(p)
         return ret
+    
+    if ch != '\r' and not is_space(ch):
+        p.last_error = 'not a VA number'
+        return -1
+
+    parser_free_response(p)
     
     p.state = ParserState.P_MGET_VA_FLAGS
     p.response_data_len = num_from_str(p.tmp_data, p.tmp_data_len)
@@ -327,12 +339,14 @@ cdef int parser_handle_cr(Parser *p) noexcept nogil:
 cdef int parser_handle_lf(Parser *p) noexcept nogil:
     if p.data[0] == '\n':
         parser_inc(p)
+
         if p.wait_response:
             p.state = ParserState.P_MGET_VA_DATA
             return 0
 
         p.current = p.next_cmd
         p.state = ParserState.P_INIT
+
         return 0
     
     p.last_error = 'invalid LF state'
@@ -369,12 +383,8 @@ cdef int parser_handle_step(Parser *p) noexcept nogil:
     p.last_error = 'invalid parser state'
     return -1
 
-
-cdef int parser_handle(Parser *p, const char *data, int n) noexcept nogil:
+cdef int parser_handle_loop(Parser *p) noexcept nogil:
     cdef int ret = 0
-
-    p.data = data
-    p.data_len = n
 
     while p.data_len > 0 and p.current == ParserCmd.P_NO_CMD:
         ret = parser_handle_step(p)
@@ -384,8 +394,18 @@ cdef int parser_handle(Parser *p, const char *data, int n) noexcept nogil:
     return 0
 
 
-cdef ParserCmd parser_get_cmd(Parser *p):
-    return p.current
+cdef int parser_handle(Parser *p, const char *data, int n) noexcept nogil:
+    p.data = data
+    p.data_len = n
+
+    return parser_handle_loop(p)
+
+
+cdef ParserCmd parser_get_cmd(Parser *p, int *ret) noexcept nogil:
+    ret[0] = parser_handle_loop(p)
+    cdef ParserCmd cmd = p.current
+    p.current = ParserCmd.P_NO_CMD
+    return cmd
 
 
 cdef bytes parser_get_string(Parser *p) noexcept:
@@ -415,9 +435,10 @@ cdef Parser *new_parser():
     return p
 
 
+
+
 cdef void parser_free(Parser *p):
-    if p.response_data != NULL:
-        free_object(<void *>p.response_data, p.response_data_len)
+    parser_free_response(p)
     free_object(<void *>p, sizeof(Parser))
 
 
@@ -447,7 +468,16 @@ cdef class ParserTest:
                     raise ValueError(err_str)
     
     def get(self):
-        return parser_get_cmd(self.p)
+        cdef int ret
+        cdef ParserCmd cmd 
+
+        with nogil:
+            cmd = parser_get_cmd(self.p, &ret)
+            if ret:
+                with gil:
+                    err_str = self.p.last_error.decode()
+                    raise ValueError(err_str)
+        return cmd
     
     def get_string(self):
         return parser_get_string(self.p)

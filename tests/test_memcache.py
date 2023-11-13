@@ -134,7 +134,6 @@ class TestCMemParser(unittest.TestCase):
         with self.assertRaises(ValueError) as ex:
             p.handle(b'   123\ra')
 
-        self.assertEqual(0, p.get())
         self.assertEqual(('invalid LF state',), ex.exception.args)
 
     def test_va(self):
@@ -148,7 +147,114 @@ class TestCMemParser(unittest.TestCase):
         self.assertEqual(0, p.get_len())
         self.assertEqual(b'ABC', p.get_data())
 
-        print("MIDDLE")
+        del p
+        self.assertEqual(0, cutil.py_get_mem())
+
+    def test_zero_response(self):
+        p = cmem.ParserTest()
+
+        self.assertEqual(0, p.get())
+
+        p.handle(b'VA 0\r\n\r\n')
+
+        self.assertEqual(2, p.get())
+        self.assertEqual(0, p.get_len())
+        self.assertEqual(b'', p.get_data())
+
+        del p
+        self.assertEqual(0, cutil.py_get_mem())
+
+    def test_va_split(self):
+        p = cmem.ParserTest()
+
+        self.assertEqual(0, p.get())
+
+        p.handle(b'VA 5\r\n')
+
+        self.assertEqual(0, p.get())
+
+        p.handle(b'ABCDE\r\n')
+
+        self.assertEqual(2, p.get())
+        self.assertEqual(0, p.get_len())
+        self.assertEqual(b'ABCDE', p.get_data())
+
+        del p
+        self.assertEqual(0, cutil.py_get_mem())
+
+    def test_va_missing_cr(self):
+        p = cmem.ParserTest()
+
+        self.assertEqual(0, p.get())
+
+        with self.assertRaises(ValueError) as ex:
+            p.handle(b'VA 2\r\nAAB\n')
+
+        self.assertEqual(('invalid CR state',), ex.exception.args)
+
+    def test_va_missing_lf(self):
+        p = cmem.ParserTest()
+
+        self.assertEqual(0, p.get())
+
+        with self.assertRaises(ValueError) as ex:
+            p.handle(b'VA 2\r\nAA\rA')
+
+        self.assertEqual(('invalid LF state',), ex.exception.args)
+
+    def test_va_not_number(self):
+        p = cmem.ParserTest()
+
+        self.assertEqual(0, p.get())
+
+        with self.assertRaises(ValueError) as ex:
+            p.handle(b'VA A\r\n')
+
+        self.assertEqual(('not a VA number',), ex.exception.args)
+
+    def test_va_allow_space_after_num(self):
+        p = cmem.ParserTest()
+
+        self.assertEqual(0, p.get())
+
+        p.handle(b'VA    3  \r\nABC\r\n')
+
+        self.assertEqual(2, p.get())
+        self.assertEqual(0, p.get_len())
+        self.assertEqual(b'ABC', p.get_data())
+
+        del p
+        self.assertEqual(0, cutil.py_get_mem())
+
+    def test_va_multi_times(self):
+        p = cmem.ParserTest()
+
+        self.assertEqual(0, p.get())
+
+        first = b'VA 3\r\nABC\r\n'
+        second = b'VA 2\r\nXX\r\n'
+        third = b'VA  1  \r\nY\r\n'
+        forth = b'VERSION 123\r\n'
+
+        data = first + second + third + forth
+        p.handle(data)
+
+        self.assertEqual(2, p.get())
+        self.assertEqual(len(second + third + forth), p.get_len())
+        self.assertEqual(b'ABC', p.get_data())
+
+        self.assertEqual(2, p.get())
+        self.assertEqual(len(third + forth), p.get_len())
+        self.assertEqual(b'XX', p.get_data())
+
+        self.assertEqual(2, p.get())
+        self.assertEqual(len(forth), p.get_len())
+        self.assertEqual(b'Y', p.get_data())
+
+        self.assertEqual(1, p.get())
+        self.assertEqual(0, p.get_len())
+        self.assertEqual(b'Y', p.get_data())
+        self.assertEqual(b'123', p.get_string())
 
         del p
         self.assertEqual(0, cutil.py_get_mem())
