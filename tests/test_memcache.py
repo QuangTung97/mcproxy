@@ -58,7 +58,9 @@ class TestCMemParser(unittest.TestCase):
         self.assertEqual(0, p.get_len())
 
         # check memory usage
-        self.assertEqual(1024 + 40, cutil.py_get_mem())
+        self.assertGreater(cutil.py_get_mem(), 1024)
+        self.assertLess(cutil.py_get_mem(), 2048)
+
         del p
         self.assertEqual(0, cutil.py_get_mem())
 
@@ -134,3 +136,19 @@ class TestCMemParser(unittest.TestCase):
 
         self.assertEqual(0, p.get())
         self.assertEqual(('invalid LF state',), ex.exception.args)
+
+    def test_va(self):
+        p = cmem.ParserTest()
+
+        self.assertEqual(0, p.get())
+
+        p.handle(b'VA 3\r\nABC\r\n')
+
+        self.assertEqual(2, p.get())
+        self.assertEqual(0, p.get_len())
+        self.assertEqual(b'ABC', p.get_data())
+
+        print("MIDDLE")
+
+        del p
+        self.assertEqual(0, cutil.py_get_mem())

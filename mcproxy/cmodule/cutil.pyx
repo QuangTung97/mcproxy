@@ -3,12 +3,12 @@ from libc.stdlib cimport malloc, free
 
 cdef unsigned int global_current_mem = 0
 
-cdef void *alloc_object(size_t n) noexcept:
+cdef void *alloc_object(size_t n) noexcept nogil:
     global global_current_mem
     global_current_mem += n
     return malloc(n)
 
-cdef void free_object(void *ptr, size_t n) noexcept:
+cdef void free_object(void *ptr, size_t n) noexcept nogil:
     global global_current_mem
     global_current_mem -= n
     free(ptr)

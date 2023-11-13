@@ -111,6 +111,9 @@ cdef enum ParserState:
     P_HANDLE_V
 
     P_MGET_VA
+    P_MGET_VA_NUM
+    P_MGET_VA_FLAGS
+    P_MGET_VA_DATA
 
     P_VERSION
     P_VERSION_SPACE
@@ -123,6 +126,7 @@ cdef enum ParserState:
 cdef enum ParserCmd:
     P_NO_CMD = 0
     P_CMD_VERSION
+    P_CMD_MG
 
 
 
@@ -137,6 +141,12 @@ cdef struct Parser:
 
     char tmp_data[TMP_DATA_MAX_LEN]
     int tmp_data_len
+
+    char *response_data # owning
+    int response_data_len
+    int response_index
+
+    int wait_response
 
     const char *last_error
 
@@ -169,6 +179,70 @@ cdef int parser_handle_v(Parser *p) noexcept nogil:
 
     return 0
 
+cdef int parser_handle_va_space(Parser *p) noexcept nogil:
+    if is_space(p.data[0]):
+        parser_inc(p)
+        return 0
+    
+    p.state = ParserState.P_MGET_VA_NUM
+    p.tmp_data_len = 0
+    return 0
+
+
+cdef int num_from_str(const char *s, int n) noexcept nogil:
+    cdef int i
+    cdef int res = 0
+    cdef char zero  = '0'
+    for i in range(n):
+        res *= 10
+        res += s[i] - zero
+    return res
+
+
+cdef int parser_handle_va_num(Parser *p) noexcept nogil:
+    cdef int ret
+
+    if is_digit(p.data[0]):
+        ret =  parser_append_tmp(p, p.data[0])
+        parser_inc(p)
+        return ret
+    
+    p.state = ParserState.P_MGET_VA_FLAGS
+    p.response_data_len = num_from_str(p.tmp_data, p.tmp_data_len)
+    p.response_index = 0
+    p.response_data = <char *>alloc_object(p.response_data_len)
+    
+    return 0
+
+cdef int parser_handle_va_flags(Parser *p) noexcept nogil:
+    if p.data[0] == '\r':
+        p.state = ParserState.P_HANDLE_CR
+        p.next_cmd = ParserCmd.P_CMD_MG
+        p.wait_response = True
+        return 0
+    
+    parser_inc(p)
+    return 0
+
+
+cdef int parser_handle_va_data(Parser *p) noexcept nogil:
+    cdef int n = p.response_data_len - p.response_index
+
+    if n > p.data_len:
+        n = p.data_len
+    else:
+        p.state = ParserState.P_HANDLE_CR
+        p.wait_response = False
+
+    memcpy(<void *>p.response_data, <void *>p.data, n)
+
+    p.data += n
+    p.data_len -= n
+    p.response_index += n
+
+    return 0
+
+
 
 cdef int is_alphabet(char c) noexcept nogil:
     if c >= 'A' and c <= 'Z':
@@ -183,6 +257,11 @@ cdef int is_space(char c) noexcept nogil:
     if c == '\t':
         return 1
     return 0
+
+cdef int is_digit(char c) noexcept nogil:
+    if c >= '0' and c <= '9':
+        return True
+    return False
 
 
 cdef int parser_append_tmp(Parser *p, char c) noexcept nogil:
@@ -230,9 +309,9 @@ cdef int parser_handle_version_value(Parser *p) noexcept nogil:
         p.state = ParserState.P_HANDLE_CR
         p.next_cmd = ParserCmd.P_CMD_VERSION
         return 0
-    parser_append_tmp(p, p.data[0])
+    cdef int ret = parser_append_tmp(p, p.data[0])
     parser_inc(p)
-    return 0
+    return ret
 
 
 cdef int parser_handle_cr(Parser *p) noexcept nogil:
@@ -248,6 +327,10 @@ cdef int parser_handle_cr(Parser *p) noexcept nogil:
 cdef int parser_handle_lf(Parser *p) noexcept nogil:
     if p.data[0] == '\n':
         parser_inc(p)
+        if p.wait_response:
+            p.state = ParserState.P_MGET_VA_DATA
+            return 0
+
         p.current = p.next_cmd
         p.state = ParserState.P_INIT
         return 0
@@ -256,15 +339,22 @@ cdef int parser_handle_lf(Parser *p) noexcept nogil:
     return -1
 
 
-cdef ParserCmd parser_get_cmd(Parser *p):
-    return p.current
-
-
 cdef int parser_handle_step(Parser *p) noexcept nogil:
     if p.state == ParserState.P_INIT:
         return parser_handle_init(p)
     elif p.state == ParserState.P_HANDLE_V:
         return parser_handle_v(p)
+
+    elif p.state == ParserState.P_MGET_VA:
+        return parser_handle_va_space(p)
+    elif p.state == ParserState.P_MGET_VA_NUM:
+        return parser_handle_va_num(p)
+    elif p.state == ParserState.P_MGET_VA_FLAGS:
+        return parser_handle_va_flags(p)
+    elif p.state == ParserState.P_MGET_VA_DATA:
+        return parser_handle_va_data(p)
+
+
     elif p.state == ParserState.P_VERSION:
         return parser_handle_version(p)
     elif p.state == ParserState.P_VERSION_SPACE:
@@ -278,7 +368,6 @@ cdef int parser_handle_step(Parser *p) noexcept nogil:
     
     p.last_error = 'invalid parser state'
     return -1
-
 
 
 cdef int parser_handle(Parser *p, const char *data, int n) noexcept nogil:
@@ -295,32 +384,53 @@ cdef int parser_handle(Parser *p, const char *data, int n) noexcept nogil:
     return 0
 
 
+cdef ParserCmd parser_get_cmd(Parser *p):
+    return p.current
+
+
 cdef bytes parser_get_string(Parser *p) noexcept:
     return p.tmp_data[:p.tmp_data_len]
+
+
+cdef Parser *new_parser():
+    cdef Parser *p = <Parser *>alloc_object(sizeof(Parser))
+    if p == NULL:
+        raise MemoryError('python OOM')
+
+    p.state = ParserState.P_INIT
+
+    p.data = NULL
+    p.data_len = 0
+
+    p.next_cmd = ParserCmd.P_NO_CMD
+    p.current = ParserCmd.P_NO_CMD
+
+    p.tmp_data_len = 0
+
+    p.response_data = NULL
+    p.response_data_len = 0
+
+    p.last_error = NULL
+
+    return p
+
+
+cdef void parser_free(Parser *p):
+    if p.response_data != NULL:
+        free_object(<void *>p.response_data, p.response_data_len)
+    free_object(<void *>p, sizeof(Parser))
 
 
 cdef class ParserTest:
     cdef Parser *p
 
     def __cinit__(self):
-        cdef Parser *p = <Parser *>alloc_object(sizeof(Parser))
-
-        p.state = ParserState.P_INIT
-
-        p.data = NULL
-        p.data_len = 0
-
-        p.next_cmd = ParserCmd.P_NO_CMD
-        p.current = ParserCmd.P_NO_CMD
-
-        p.tmp_data_len = 0
-
-        p.last_error = NULL
-
-        self.p = p
+        self.p = new_parser()
 
     def __dealloc__(self):
-        free_object(self.p, sizeof(Parser))
+        if self.p != NULL:
+            parser_free(self.p)
+
 
     def handle(self, bytes data):
         cdef int ret
@@ -344,3 +454,8 @@ cdef class ParserTest:
     
     def get_len(self):
         return self.p.data_len
+    
+    def get_data(self):
+        cdef Parser *p = self.p
+        cdef bytes b = p.response_data[:p.response_data_len]
+        return b
