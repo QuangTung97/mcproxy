@@ -11,7 +11,7 @@ setuptools.setup(
     license="MIT",
     keywords=["Memcached", "key-value store", "caching"],
 
-    ext_modules=cythonize('mcproxy/cmodule/cmem.pyx'),
+    ext_modules=cythonize('mcproxy/cmodule/*.pyx', language_level="3str"),
 
     author="quangtung97",
     author_email="quangtung29121997@gmail.com",

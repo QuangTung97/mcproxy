@@ -2,6 +2,7 @@ import socket
 import unittest
 
 import cmem  # type: ignore
+import cutil  # type: ignore
 
 
 class TestMemcache(unittest.TestCase):
@@ -31,9 +32,13 @@ class TestMemcache(unittest.TestCase):
         self.assertIs(self.conn, conns[0])
         self.assertEqual([], cmem.get_global_free_conns())
 
+        self.assertEqual(4096 + 4, cutil.py_get_mem())
+
         del c2
         self.assertEqual([None], conns)
         self.assertEqual([0], cmem.get_global_free_conns())
+
+        self.assertEqual(0, cutil.py_get_mem())
 
     def test_version(self):
         c = cmem.Client(self.new_socket)
@@ -43,4 +48,12 @@ class TestMemcache(unittest.TestCase):
 class TestCMemParser(unittest.TestCase):
     def test_version(self):
         p = cmem.ParserTest()
+
+        self.assertEqual(0, p.get())
+
         p.handle(b'VERSION 123\r\n')
+
+        # check memory usage
+        self.assertEqual(1024 + 40, cutil.py_get_mem())
+        del p
+        self.assertEqual(0, cutil.py_get_mem())
