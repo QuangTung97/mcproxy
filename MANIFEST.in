@@ -1,0 +1,2 @@
+include mcproxy/cmodule/*.pyx
+include mcproxy/cmodule/*.pyd

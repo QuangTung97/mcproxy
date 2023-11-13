@@ -7,7 +7,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setuptools.setup(
     name="mcproxy",
-    version="0.1.0rc0",
+    version="0.1.0rc3",
     license="MIT",
     keywords=["Memcached", "key-value store", "caching"],
 
