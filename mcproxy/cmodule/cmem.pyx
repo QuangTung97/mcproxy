@@ -109,6 +109,9 @@ cdef class Client:
 cdef enum ParserState:
     P_INIT = 1
     P_HANDLE_V
+    P_HANDLE_H
+    P_HANDLE_N
+    P_FIND_CR
 
     P_MGET_VA
     P_MGET_VA_NUM
@@ -127,6 +130,8 @@ cdef enum ParserCmd:
     P_NO_CMD = 0
     P_CMD_VERSION
     P_CMD_MG
+    P_CMD_HD
+    P_CMD_NS
 
 
 
@@ -157,9 +162,20 @@ cdef void parser_inc(Parser *p) noexcept nogil:
 
 
 cdef int parser_handle_init(Parser *p) noexcept nogil:
-    if p.data[0] == 'V':
+    cdef char ch = p.data[0]
+    if ch == 'V':
         parser_inc(p)
         p.state = ParserState.P_HANDLE_V
+        return 0
+
+    elif ch == 'H':
+        parser_inc(p)
+        p.state = ParserState.P_HANDLE_H
+        return 0
+    
+    elif ch == 'N':
+        parser_inc(p)
+        p.state = ParserState.P_HANDLE_N
         return 0
 
     p.last_error = 'invalid response'
@@ -178,6 +194,29 @@ cdef int parser_handle_v(Parser *p) noexcept nogil:
         return 0
 
     return 0
+
+
+cdef int parser_handle_h(Parser *p) noexcept nogil:
+    if p.data[0] == 'D':
+        parser_inc(p)
+        p.state = ParserState.P_FIND_CR
+        p.next_cmd = ParserCmd.P_CMD_HD
+        return 0
+
+    p.last_error = 'invalid character after H'
+    return -1
+
+
+cdef int parser_handle_n(Parser *p) noexcept nogil:
+    if p.data[0] == 'S':
+        parser_inc(p)
+        p.state = ParserState.P_FIND_CR
+        p.next_cmd = ParserCmd.P_CMD_NS
+        return 0
+
+    p.last_error = 'invalid character after N'
+    return -1
+
 
 cdef int parser_handle_va_space(Parser *p) noexcept nogil:
     if is_space(p.data[0]):
@@ -252,6 +291,15 @@ cdef int parser_handle_va_data(Parser *p) noexcept nogil:
     p.data_len -= n
     p.response_index += n
 
+    return 0
+
+
+cdef int parser_find_cr(Parser *p) noexcept nogil:
+    if p.data[0] == '\r':
+        p.state = ParserState.P_HANDLE_CR
+        return 0
+
+    parser_inc(p)
     return 0
 
 
@@ -358,6 +406,13 @@ cdef int parser_handle_step(Parser *p) noexcept nogil:
         return parser_handle_init(p)
     elif p.state == ParserState.P_HANDLE_V:
         return parser_handle_v(p)
+    elif p.state == ParserState.P_HANDLE_H:
+        return parser_handle_h(p)
+    elif p.state == ParserState.P_HANDLE_N:
+        return parser_handle_n(p)
+    elif p.state == ParserState.P_FIND_CR:
+        return parser_find_cr(p)
+
 
     elif p.state == ParserState.P_MGET_VA:
         return parser_handle_va_space(p)
@@ -429,12 +484,13 @@ cdef Parser *new_parser():
 
     p.response_data = NULL
     p.response_data_len = 0
+    p.response_index = 0
+
+    p.wait_response = False
 
     p.last_error = NULL
 
     return p
-
-
 
 
 cdef void parser_free(Parser *p):

@@ -258,3 +258,89 @@ class TestCMemParser(unittest.TestCase):
 
         del p
         self.assertEqual(0, cutil.py_get_mem())
+
+    def test_do_nothing(self):
+        p = cmem.ParserTest()
+
+        self.assertEqual(0, p.get_len())
+        self.assertEqual(b'', p.get_data())
+        self.assertEqual(b'', p.get_string())
+
+        del p
+        self.assertEqual(0, cutil.py_get_mem())
+
+
+class TestCMemParserHandleMSet(unittest.TestCase):
+    def test_handle_hd(self):
+        p = cmem.ParserTest()
+
+        p.handle(b'HD abcd\r\n')
+
+        self.assertEqual(3, p.get())
+        self.assertEqual(0, p.get_len())
+        self.assertEqual(b'', p.get_data())
+        self.assertEqual(b'', p.get_string())
+
+        del p
+        self.assertEqual(0, cutil.py_get_mem())
+
+    def test_handle_hd_no_space(self):
+        p = cmem.ParserTest()
+
+        p.handle(b'HD\r\n')
+
+        self.assertEqual(3, p.get())
+        self.assertEqual(0, p.get_len())
+        self.assertEqual(b'', p.get_data())
+        self.assertEqual(b'', p.get_string())
+
+        del p
+        self.assertEqual(0, cutil.py_get_mem())
+
+    def test_handle_hx(self):
+        p = cmem.ParserTest()
+
+        with self.assertRaises(ValueError) as ex:
+            p.handle(b'HX\r\n')
+
+        self.assertEqual(('invalid character after H',), ex.exception.args)
+
+        del p
+        self.assertEqual(0, cutil.py_get_mem())
+
+    def test_handle_ns(self):
+        p = cmem.ParserTest()
+
+        p.handle(b'NS abcd\r\n')
+
+        self.assertEqual(4, p.get())
+        self.assertEqual(0, p.get_len())
+        self.assertEqual(b'', p.get_data())
+        self.assertEqual(b'', p.get_string())
+
+        del p
+        self.assertEqual(0, cutil.py_get_mem())
+
+    def test_handle_ns_no_space(self):
+        p = cmem.ParserTest()
+
+        p.handle(b'NS\r\n')
+
+        self.assertEqual(4, p.get())
+        self.assertEqual(0, p.get_len())
+        self.assertEqual(b'', p.get_data())
+        self.assertEqual(b'', p.get_string())
+
+        del p
+        self.assertEqual(0, cutil.py_get_mem())
+
+    def test_handle_nx(self):
+        p = cmem.ParserTest()
+
+        with self.assertRaises(ValueError) as ex:
+            p.handle(b'NX\r\n')
+
+        self.assertEqual(('invalid character after N',), ex.exception.args)
+
+        del p
+        self.assertEqual(0, cutil.py_get_mem())
