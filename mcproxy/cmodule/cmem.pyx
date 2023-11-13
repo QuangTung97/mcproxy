@@ -20,17 +20,17 @@ cdef struct Conn:
     char resp_data[MAX_DATA]
 
 
-cdef Conn *make_conn(int index):
+cdef Conn *make_conn(int index) noexcept:
     cdef Conn *c = <Conn *>malloc(sizeof(Conn))
     c.index = index
     return c
 
 
-cdef object get_conn(const Conn *c):
+cdef object get_conn(const Conn *c) noexcept:
     return global_conns[c.index]
 
 
-cdef void free_conn(const Conn *c):
+cdef void free_conn(const Conn *c) noexcept:
     global global_conns
     global_conns[c.index] = None
     global_free_conns.append(c.index)
@@ -52,7 +52,7 @@ cdef int conn_read(Conn *conn):
     return n
 
 
-cdef int bytes_equal(const char *a, const char *b, int length):
+cdef int bytes_equal(const char *a, const char *b, int length) noexcept:
     cdef int i
     for i in range(length):
         if a[i] != b[i]:
@@ -95,3 +95,55 @@ cdef class Client:
 
     cpdef str version(self):
         return conn_version(self.conn).decode()
+
+
+cdef enum PARSER_STATE:
+    P_INIT = 1
+    P_HANDLE_V
+
+    P_MGET_A
+    P_MGET_NUM
+
+    P_VERSION_E
+
+
+cdef struct Parser:
+    PARSER_STATE state
+    const char *data # non owning
+    int pos
+    int data_len
+
+cdef int parser_handle_init(Parser *p, const char *data, int n) noexcept:
+    if data[0] == 'V':
+        return 0
+
+
+cdef int parser_handle(Parser *p, const char *data, int n) noexcept:
+    p.data = data
+    p.pos = 0
+    p.data_len = n
+
+    while p.pos < p.data_len:
+        if p.state == P_INIT:
+            parser_handle_init(p, data, n)
+            p.pos = p.data_len
+
+    return 0
+
+
+cdef class ParserTest:
+    cdef Parser *p
+
+    def __cinit__(self):
+        cdef Parser *p = <Parser *>malloc(sizeof(Parser))
+        p.state = P_INIT
+        p.data = NULL
+        p.pos = 0
+        p.data_len = 0
+        self.p = p
+
+    def __dealloc__(self):
+        free(self.p)
+
+    def handle(self, bytes data):
+        parser_handle(self.p, data, len(data))

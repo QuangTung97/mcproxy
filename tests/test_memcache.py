@@ -5,9 +5,6 @@ import cmem  # type: ignore
 
 
 class TestMemcache(unittest.TestCase):
-    def setUp(self) -> None:
-        pass
-
     def new_socket(self):
         self.conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
@@ -41,3 +38,9 @@ class TestMemcache(unittest.TestCase):
     def test_version(self):
         c = cmem.Client(self.new_socket)
         self.assertEqual('1.6.18', c.version())
+
+
+class TestCMemParser(unittest.TestCase):
+    def test_version(self):
+        p = cmem.ParserTest()
+        p.handle(b'VERSION 123\r\n')
