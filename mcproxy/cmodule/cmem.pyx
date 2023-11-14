@@ -18,25 +18,30 @@ DEF TMP_DATA_MAX_LEN = 1024
 
 
 cdef struct Conn:
+    void *conn_ptr
     int index
     char resp_data[MAX_DATA]
     int resp_len
 
 
-cdef Conn *make_conn(int index) noexcept:
+cdef Conn *make_conn(int index, void *conn_ptr) noexcept:
     cdef Conn *c = <Conn *>alloc_object(sizeof(Conn))
     c.index = index
+    c.conn_ptr = conn_ptr
+    c.resp_len = 0
     return c
 
 
 cdef object get_conn(const Conn *c) noexcept:
-    return global_conns[c.index]
+    return <object>c.conn_ptr
 
 
-cdef void free_conn(const Conn *c) noexcept:
-    global global_conns
+cdef void free_conn(Conn *c) noexcept:
     global_conns[c.index] = None
     global_free_conns.append(c.index)
+
+    c.conn_ptr = NULL
+
     free_object(<void *>c, sizeof(Conn))
 
 
@@ -83,7 +88,7 @@ cdef class Client:
     cdef Conn *conn
 
     def __cinit__(self, object new_conn):
-        conn = new_conn()
+        cdef object conn = new_conn()
 
         cdef int index
 
@@ -94,7 +99,7 @@ cdef class Client:
             index = len(global_conns)
             global_conns.append(conn)
 
-        self.conn = make_conn(index)
+        self.conn = make_conn(index, <void *>conn)
 
     def __dealloc__(self):
         if self.conn:

@@ -32,7 +32,7 @@ class TestMemcache(unittest.TestCase):
         self.assertIs(self.conn, conns[0])
         self.assertEqual([], cmem.get_global_free_conns())
 
-        self.assertEqual(4096 + 8, cutil.py_get_mem())
+        self.assertEqual(4096 + 4 * 4, cutil.py_get_mem())
 
         del c2
         self.assertEqual([None], conns)
