@@ -26,6 +26,16 @@ cdef struct MGetCmd:
     int N
 
 
+cdef struct MSetCmd:
+    const char *key # non owning pointer
+    int key_len
+
+    const char *data # non owning pointer
+    int data_len
+
+    size_t cas
+
+
 cdef Builder *make_builder(void *write_obj, write_func write_fn, int limit) noexcept nogil:
     cdef Builder *b = <Builder *>alloc_object(sizeof(Builder))
 
@@ -42,23 +52,44 @@ cdef void free_builder(Builder *b) noexcept nogil:
     free_object(b, sizeof(Builder))
 
 
-cdef void builder_append(Builder *b, const char *data, int n) noexcept nogil:
-    cdef int index = b.buf_len
-    memcpy(b.buf + index, data, n)
-    b.buf_len += n
+cdef int builder_append(Builder *b, const char *data, int n) noexcept nogil:
+    cdef int data_size
+    cdef int reset
+    cdef int remaining
+
+    while n > 0:
+        reset = False
+        data_size = n
+        remaining = b.write_limit - b.buf_len
+
+        if data_size > remaining:
+            reset = True
+            data_size = remaining
+
+        memcpy(b.buf + b.buf_len, data, data_size)
+
+        data += data_size
+        n -= data_size
+        b.buf_len += data_size
+
+        if reset:
+            ret = builder_flush(b)
+            if ret:
+                return ret
+
+    return 0
 
 
 @cython.cdivision
-cdef void builder_append_num(Builder *b, int num) noexcept nogil:
-    cdef char buf[16]
+cdef int builder_append_num(Builder *b, size_t num) noexcept nogil:
+    cdef char buf[32]
     cdef int num_len = 0
     cdef char zero = '0'
     cdef char ch
     cdef int i
 
     if num <= 0:
-        builder_append(b, '0', 1)
-        return
+        return builder_append(b, '0', 1)
 
     while num > 0:
         ch = (num % 10) + zero
@@ -70,41 +101,90 @@ cdef void builder_append_num(Builder *b, int num) noexcept nogil:
     for i in range(num_len // 2):
         buf[i], buf[num_len - 1 - i] = buf[num_len - 1 - i], buf[i]
     
-    builder_append(b, buf, num_len)
+    return builder_append(b, buf, num_len)
 
 
 cdef int builder_add_mget(Builder *b, MGetCmd cmd) noexcept nogil:
     cdef int ret
 
-    builder_append(b, 'mg ', 3)
-    builder_append(b, cmd.key, cmd.key_len)
+    ret = builder_append(b, 'mg ', 3)
+    if ret:
+        return ret
+
+    ret = builder_append(b, cmd.key, cmd.key_len)
+    if ret:
+        return ret
 
     if cmd.N > 0:
-        builder_append(b, ' N', 2)
-        builder_append_num(b, cmd.N)
-
-    builder_append(b, ' v\r\n', 4)
-
-    if b.buf_len > b.write_limit:
-        ret = builder_flush(b, b.write_limit)
+        ret = builder_append(b, ' N', 2)
         if ret:
             return ret
-        memcpy(b.buf, b.buf + b.write_limit, b.buf_len)
+
+        ret = builder_append_num(b, cmd.N)
+        if ret:
+            return ret
+
+    ret = builder_append(b, ' v\r\n', 4)
+    if ret:
+        return ret
 
     return 0
 
 
-cdef int builder_flush(Builder *b, int n) noexcept nogil:
+cdef int builder_add_mset(Builder *b, MSetCmd cmd) noexcept nogil:
+    cdef int ret
+    ret = builder_append(b, 'ms ', 3)
+    if ret:
+        return ret
+    
+    ret = builder_append(b, cmd.key, cmd.key_len)
+    if ret:
+        return ret
+
+    ret = builder_append(b, ' ', 1)
+    if ret:
+        return ret
+
+    ret = builder_append_num(b, cmd.data_len)
+    if ret:
+        return ret
+    
+    if cmd.cas > 0:
+        ret = builder_append(b, ' C', 2)
+        if ret:
+            return ret
+
+        ret = builder_append_num(b, cmd.cas)
+        if ret:
+            return ret
+
+
+    ret = builder_append(b, '\r\n', 2)
+    if ret:
+        return ret
+
+    ret = builder_append(b, cmd.data, cmd.data_len)
+    if ret:
+        return ret
+
+    ret = builder_append(b, '\r\n', 2)
+    if ret:
+        return ret
+
+    return 0
+
+
+cdef int builder_flush(Builder *b) noexcept nogil:
     cdef int ret
     with gil:
-        ret = b.write_fn(b.write_obj, b.buf, n)
-        b.buf_len -= n
+        ret = b.write_fn(b.write_obj, b.buf, b.buf_len)
+        b.buf_len = 0
     return ret
 
 
 cdef int builder_finish(Builder *b) noexcept nogil:
     if b.buf_len > 0:
-        return builder_flush(b, b.buf_len)
+        return builder_flush(b)
     return 0
 
 
@@ -134,6 +214,16 @@ cdef class BuilderTest:
 
         cdef MGetCmd cmd = MGetCmd(key=ptr, key_len=key_len, N=N)
         return builder_add_mget(self.b, cmd)
+
+    def add_mset(self, bytes key, bytes data, size_t cas = 0):
+        cdef const char *ptr = key
+        cdef int key_len = len(key)
+
+        cdef const char *data_ptr = data
+        cdef int data_len = len(data)
+
+        cdef MSetCmd cmd = MSetCmd(key=ptr, key_len=key_len, data=data_ptr, data_len=data_len, cas=cas)
+        return builder_add_mset(self.b, cmd)
     
     def finish(self):
         return builder_finish(self.b)

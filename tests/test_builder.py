@@ -1,3 +1,4 @@
+import math
 import unittest
 from typing import List
 
@@ -139,6 +140,77 @@ class TestBuilder(unittest.TestCase):
         self.assertEqual(0, b.finish())
 
         self.assertEqual([b'mg key01 v\r\n'], self.write_list)
+
+        del b
+        self.assertEqual(0, cutil.py_get_mem())
+
+    def test_add_mset(self) -> None:
+        b = cbuilder.BuilderTest(self.write_func, 1024)
+
+        self.assertEqual(0, b.add_mset(b'key01', b'data 01'))
+        self.assertEqual(0, b.finish())
+
+        self.assertEqual([b'ms key01 7\r\ndata 01\r\n'], self.write_list)
+
+        del b
+        self.assertEqual(0, cutil.py_get_mem())
+
+    def test_add_mset_zero_size(self) -> None:
+        b = cbuilder.BuilderTest(self.write_func, 1024)
+
+        self.assertEqual(0, b.add_mset(b'key01', b''))
+        self.assertEqual(0, b.finish())
+
+        self.assertEqual([b'ms key01 0\r\n\r\n'], self.write_list)
+
+        del b
+        self.assertEqual(0, cutil.py_get_mem())
+
+    def test_add_mset_with_limit(self) -> None:
+        cmd = b'ms key01 98\r\n'
+
+        b = cbuilder.BuilderTest(self.write_func, 29)
+
+        self.assertEqual(0, b.add_mset(b'key01', b'A' * 97))
+        self.assertEqual(0, b.finish())
+
+        self.assertEqual(112, 97 + 2 + len(cmd))
+        self.assertEqual(4, math.ceil(112 / 29))
+        self.assertEqual(4, len(self.write_list))
+
+        result = b''
+        for e in self.write_list:
+            result += e
+
+        data = 'A' * 97
+        self.assertEqual(f'ms key01 97\r\n{data}\r\n'.encode(), result)
+
+        del b
+        self.assertEqual(0, cutil.py_get_mem())
+
+    def test_add_mset_with_cas(self) -> None:
+        b = cbuilder.BuilderTest(self.write_func, 1024)
+
+        self.assertEqual(0, b.add_mset(b'key01', b'data 01', cas=18))
+        self.assertEqual(0, b.finish())
+
+        self.assertEqual([b'ms key01 7 C18\r\ndata 01\r\n'], self.write_list)
+
+        del b
+        self.assertEqual(0, cutil.py_get_mem())
+
+    def test_add_mset_with_cas_very_big(self) -> None:
+        b = cbuilder.BuilderTest(self.write_func, 1024)
+
+        self.assertEqual(0, b.add_mset(b'key01', b'data 01', cas=9223372036854775809))
+        self.assertEqual(0, b.add_mset(b'key02', b'XX', cas=123))
+
+        self.assertEqual(0, b.finish())
+
+        self.assertEqual([
+            b'ms key01 7 C9223372036854775809\r\ndata 01\r\n' +
+            b'ms key02 2 C123\r\nXX\r\n'
+        ], self.write_list)
 
         del b
         self.assertEqual(0, cutil.py_get_mem())
