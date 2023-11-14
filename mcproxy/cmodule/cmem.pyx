@@ -2,16 +2,14 @@ from libc.string cimport memcpy
 
 from cutil cimport alloc_object, free_object
 from cutil cimport bytes_equal
+from cpool cimport ObjectPool
 
 
-cdef list global_conns = list() # list of connections
-cdef list global_free_conns = list() # list of indices
+cdef ObjectPool conn_pool = ObjectPool(1024) # pool of connections
 
-def get_global_conns():
-    return global_conns
 
-def get_global_free_conns():
-    return global_free_conns
+def get_conn_pool():
+    return conn_pool
 
 
 DEF MAX_DATA = 4096
@@ -37,10 +35,8 @@ cdef object get_conn(const Conn *c) noexcept:
 
 
 cdef void free_conn(Conn *c) noexcept:
-    global_conns[c.index] = None
-    global_free_conns.append(c.index)
-
     c.conn_ptr = NULL
+    conn_pool.free(c.index)
 
     free_object(<void *>c, sizeof(Conn))
 
@@ -80,15 +76,7 @@ cdef class Client:
     def __cinit__(self, object new_conn):
         cdef object conn = new_conn()
 
-        cdef int index
-
-        if len(global_free_conns) > 0:
-            index = global_free_conns.pop()
-            global_conns[index] = conn
-        else:
-            index = len(global_conns)
-            global_conns.append(conn)
-
+        cdef int index = conn_pool.put(conn)
         self.conn = make_conn(index, <void *>conn)
 
     def __dealloc__(self):
