@@ -111,6 +111,7 @@ cdef enum ParserState:
     P_HANDLE_V
     P_HANDLE_H
     P_HANDLE_N
+    P_HANDLE_E
     P_FIND_CR
 
     P_MGET_VA
@@ -132,6 +133,8 @@ cdef enum ParserCmd:
     P_CMD_MG
     P_CMD_HD
     P_CMD_NS
+    P_CMD_EX
+    P_CMD_NF
 
 
 
@@ -178,6 +181,11 @@ cdef int parser_handle_init(Parser *p) noexcept nogil:
         p.state = ParserState.P_HANDLE_N
         return 0
 
+    elif ch == 'E':
+        parser_inc(p)
+        p.state = ParserState.P_HANDLE_E
+        return 0
+
     p.last_error = 'invalid response'
     return -1
 
@@ -208,13 +216,31 @@ cdef int parser_handle_h(Parser *p) noexcept nogil:
 
 
 cdef int parser_handle_n(Parser *p) noexcept nogil:
-    if p.data[0] == 'S':
+    cdef char ch = p.data[0]
+
+    if ch == 'S':
         parser_inc(p)
         p.state = ParserState.P_FIND_CR
         p.next_cmd = ParserCmd.P_CMD_NS
         return 0
+    elif ch == 'F':
+        parser_inc(p)
+        p.state = ParserState.P_FIND_CR
+        p.next_cmd = ParserCmd.P_CMD_NF
+        return 0
 
     p.last_error = 'invalid character after N'
+    return -1
+
+
+cdef int parser_handle_e(Parser *p) noexcept nogil:
+    if p.data[0] == 'X':
+        parser_inc(p)
+        p.state = ParserState.P_FIND_CR
+        p.next_cmd = ParserCmd.P_CMD_EX
+        return 0
+
+    p.last_error = 'invalid character after E'
     return -1
 
 
@@ -410,6 +436,8 @@ cdef int parser_handle_step(Parser *p) noexcept nogil:
         return parser_handle_h(p)
     elif p.state == ParserState.P_HANDLE_N:
         return parser_handle_n(p)
+    elif p.state == ParserState.P_HANDLE_E:
+        return parser_handle_e(p)
     elif p.state == ParserState.P_FIND_CR:
         return parser_find_cr(p)
 

@@ -344,3 +344,40 @@ class TestCMemParserHandleMSet(unittest.TestCase):
 
         del p
         self.assertEqual(0, cutil.py_get_mem())
+
+    def test_handle_ex(self):
+        p = cmem.ParserTest()
+
+        p.handle(b'EX abcd\r\n')
+
+        self.assertEqual(5, p.get())
+        self.assertEqual(0, p.get_len())
+        self.assertEqual(b'', p.get_data())
+        self.assertEqual(b'', p.get_string())
+
+        del p
+        self.assertEqual(0, cutil.py_get_mem())
+
+    def test_handle_es_invalid(self):
+        p = cmem.ParserTest()
+
+        with self.assertRaises(ValueError) as ex:
+            p.handle(b'ES abcd\r\n')
+
+        self.assertEqual(('invalid character after E',), ex.exception.args)
+
+        del p
+        self.assertEqual(0, cutil.py_get_mem())
+
+    def test_handle_nf(self):
+        p = cmem.ParserTest()
+
+        p.handle(b'NF abcd\r\n')
+
+        self.assertEqual(6, p.get())
+        self.assertEqual(0, p.get_len())
+        self.assertEqual(b'', p.get_data())
+        self.assertEqual(b'', p.get_string())
+
+        del p
+        self.assertEqual(0, cutil.py_get_mem())
