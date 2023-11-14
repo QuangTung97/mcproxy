@@ -31,3 +31,29 @@ cdef int bytes_equal(const char *a, int a_len, const char *b, int b_len) noexcep
         if a[i] != b[i]:
             return False
     return True
+
+
+cdef void init_ref_count(RefCount *ref, void *obj, destroy_func destroy_fn) noexcept nogil:
+    ref.count = 1
+    ref.obj = obj
+    ref.destroy_fn = destroy_fn
+
+
+cdef void ref_inc(RefCount *ref) noexcept nogil:
+    if ref.count == 0:
+        with gil:
+            print('[ERROR] invalid ref count increase')
+        return
+
+    ref.count += 1
+
+
+cdef void ref_dec(RefCount *ref) noexcept nogil:
+    if ref.count == 0:
+        with gil:
+            print('[ERROR] invalid ref count decrease')
+        return
+
+    ref.count -= 1
+    if ref.count == 0:
+        ref.destroy_fn(ref.obj)
