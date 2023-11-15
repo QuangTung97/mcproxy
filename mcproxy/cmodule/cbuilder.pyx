@@ -36,6 +36,11 @@ cdef struct MSetCmd:
     size_t cas
 
 
+cdef struct MDelCmd:
+    const char *key # non owning pointer
+    int key_len
+
+
 cdef Builder *make_builder(void *write_obj, write_func write_fn, int limit) noexcept nogil:
     cdef Builder *b = <Builder *>alloc_object(sizeof(Builder))
 
@@ -174,6 +179,24 @@ cdef int builder_add_mset(Builder *b, MSetCmd cmd) noexcept nogil:
     return 0
 
 
+cdef int builder_add_mdel(Builder *b, MDelCmd cmd) noexcept nogil:
+    cdef int ret
+
+    ret = builder_append(b, 'md ', 3)
+    if ret:
+        return ret
+
+    ret = builder_append(b, cmd.key, cmd.key_len)
+    if ret:
+        return ret
+
+    ret = builder_append(b, '\r\n', 2)
+    if ret:
+        return ret
+    
+    return 0
+
+
 cdef int builder_flush(Builder *b) noexcept nogil:
     cdef int ret
     with gil:
@@ -224,6 +247,13 @@ cdef class BuilderTest:
 
         cdef MSetCmd cmd = MSetCmd(key=ptr, key_len=key_len, data=data_ptr, data_len=data_len, cas=cas)
         return builder_add_mset(self.b, cmd)
+    
+    def add_delete(self, bytes key):
+        cdef const char *ptr = key
+        cdef int key_len = len(key)
+
+        cdef MDelCmd cmd = MDelCmd(key=ptr, key_len=key_len)
+        return builder_add_mdel(self.b, cmd)
     
     def finish(self):
         return builder_finish(self.b)

@@ -214,3 +214,14 @@ class TestBuilder(unittest.TestCase):
 
         del b
         self.assertEqual(0, cutil.py_get_mem())
+
+    def test_add_delete(self) -> None:
+        b = cbuilder.BuilderTest(self.write_func, 1024)
+
+        self.assertEqual(0, b.add_delete(b'key01'))
+        self.assertEqual(0, b.finish())
+
+        self.assertEqual([b'md key01\r\n'], self.write_list)
+
+        del b
+        self.assertEqual(0, cutil.py_get_mem())
