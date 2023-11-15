@@ -225,3 +225,21 @@ class TestBuilder(unittest.TestCase):
 
         del b
         self.assertEqual(0, cutil.py_get_mem())
+
+    def test_add_multi_commands(self) -> None:
+        b = cbuilder.BuilderTest(self.write_func, 1024)
+
+        self.assertEqual(0, b.add_mget(b'key01', N=3))
+        self.assertEqual(0, b.add_mset(b'key01', b'data 01', cas=1234))
+        self.assertEqual(0, b.add_delete(b'key01'))
+
+        self.assertEqual(0, b.finish())
+
+        self.assertEqual([
+            b'mg key01 N3 v\r\n' +
+            b'ms key01 7 C1234\r\ndata 01\r\n' +
+            b'md key01\r\n',
+        ], self.write_list)
+
+        del b
+        self.assertEqual(0, cutil.py_get_mem())
