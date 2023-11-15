@@ -66,17 +66,22 @@ cdef void builder_append_num(Builder *b, size_t num) noexcept nogil:
     builder_append(b, buf, num_len)
 
 
-cdef int builder_internal_do_flush(Builder *b) noexcept nogil:
+cdef WriteStatus builder_internal_do_flush(Builder *b) noexcept nogil:
     cdef int n = builder_flush(b)
+    if n == 0:
+        return WriteStatus.WS_FULL
+    
+    # TODO Check Error
+
     memmove(b.buf, b.buf + n, b.buf_len - n)
     b.buf_len -= n
-    return n
+    return WriteStatus.WS_FLUSHED
 
 
 cdef WriteStatus builder_write_if_full(Builder *b) noexcept nogil:
     if b.buf_len > b.write_limit:
-        builder_internal_do_flush(b) # TODO Check Len
-    return WriteStatus.WS_OK
+        return builder_internal_do_flush(b)
+    return WriteStatus.WS_NOOP
 
 
 cdef WriteStatus builder_add_mget(Builder *b, MGetCmd cmd) noexcept nogil:
@@ -95,13 +100,16 @@ cdef WriteStatus builder_add_mget(Builder *b, MGetCmd cmd) noexcept nogil:
 cdef WriteStatus builder_write_set_data(Builder *b) noexcept nogil:
     cdef int n
     cdef int remaining
-
-    # builder_write_if_full(b) # TODO Check Status
+    cdef int flushed
+    cdef WriteStatus st = builder_write_if_full(b)
 
     while b.current_set_len > 0:
         n = b.current_set_len
+        flushed = False
+
         remaining = b.write_limit - b.buf_len
         if n > remaining:
+            flushed = True
             n = remaining
         
         builder_append(b, b.current_set_data, n)
@@ -109,12 +117,12 @@ cdef WriteStatus builder_write_set_data(Builder *b) noexcept nogil:
         b.current_set_data += n
         b.current_set_len -= n
 
-        if n == remaining:
-            builder_internal_do_flush(b) # TODO Check Len
+        if flushed:
+            st = builder_internal_do_flush(b)
     
     builder_append(b, '\r\n', 2)
     
-    return WriteStatus.WS_OK
+    return st
 
 
 cdef WriteStatus builder_add_mset(Builder *b, MSetCmd cmd) noexcept nogil:
@@ -157,8 +165,9 @@ cdef int builder_flush(Builder *b) noexcept nogil:
 
 
 cdef WriteStatus builder_finish(Builder *b) noexcept nogil:
-    builder_internal_do_flush(b)
-    return WriteStatus.WS_OK
+    if b.buf_len > 0:
+        return builder_internal_do_flush(b)
+    return WriteStatus.WS_NOOP
 
 
 cdef int python_write_func(void *obj, const char *data, int n) noexcept:

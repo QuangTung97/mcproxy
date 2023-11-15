@@ -29,8 +29,9 @@ cdef struct MDelCmd:
 
 
 cdef enum WriteStatus:
-    WS_OK = 0
-    WS_FULL = 1
+    WS_NOOP = 0
+    WS_FLUSHED = 1
+    WS_FULL = 2
     WS_ERROR = -1
 
 
