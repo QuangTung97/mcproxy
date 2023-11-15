@@ -14,34 +14,30 @@ class TestMemcache(unittest.TestCase):
         self.conn.connect((host_ip, 11211))
         return self.conn
 
-    def test_normal(self) -> None:
-        c = cmem.Client(self.new_socket)
+    def test_new_client(self) -> None:
+        c = cmem.Client(self.new_socket())
 
-        pool = cmem.get_conn_pool()
+        pool = cmem.get_client_pool()
         conns = pool.get_objects()
 
         self.assertEqual(1, len(conns))
-        self.assertIs(self.conn, conns[0])
+        self.assertIsNotNone(conns[0])
 
         del c
 
         self.assertEqual([None], conns)
         self.assertEqual([0], pool.get_free_indices())
 
-        c2 = cmem.Client(self.new_socket)
+        c2 = cmem.Client(self.new_socket())
 
         self.assertEqual(1, len(conns))
-        self.assertIs(self.conn, conns[0])
+        self.assertIsNotNone(conns[0])
         self.assertEqual([], pool.get_free_indices())
 
-        self.assertEqual(4096 + 4 * 4, cutil.py_get_mem())
+        self.assertEqual(0, cutil.py_get_mem())
 
         del c2
         self.assertEqual([None], conns)
         self.assertEqual([0], pool.get_free_indices())
 
         self.assertEqual(0, cutil.py_get_mem())
-
-    def test_version(self):
-        c = cmem.Client(self.new_socket)
-        self.assertEqual('1.6.18', c.version())

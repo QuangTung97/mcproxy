@@ -15,15 +15,24 @@ ctypedef void (*destroy_func)(void *obj) noexcept nogil
 
 ctypedef void (*free_func)(void *obj) noexcept nogil
 
-cdef struct SharedPtr
 
-cdef struct WeakPtr
+cdef struct SharedPtr:
+    void *__self_ptr
+    void *__obj
+    RefCounter *__ref
+
+
+cdef struct WeakPtr:
+    void *__self_ptr
+    void *__obj
+    RefCounter *__ref
+
 
 cdef struct RefCounter:
-    size_t count
-    size_t weak_count
-    destroy_func destroy_fn
-    free_func free_fn
+    size_t __count
+    size_t __weak_count
+    destroy_func __destroy_fn
+    free_func __free_fn
 
 cdef void make_shared(SharedPtr *ptr, void *obj, RefCounter *ref, destroy_func destroy_fn, free_func free_fn) noexcept nogil
 

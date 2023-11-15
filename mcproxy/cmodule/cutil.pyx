@@ -39,105 +39,93 @@ cdef int bytes_equal(const char *a, int a_len, const char *b, int b_len) noexcep
 # Shared Pointer
 # ===================================
 
-cdef struct SharedPtr:
-    void *self_ptr
-    void *obj
-    RefCounter *ref
-
-
-cdef struct WeakPtr:
-    void *self_ptr
-    void *obj
-    RefCounter *ref
-
-
 cdef void make_shared(
     SharedPtr *ptr, void *obj, RefCounter *ref,
     destroy_func destroy_fn, free_func free_fn,
 ) noexcept nogil:
-    ptr.self_ptr = <void *>ptr
-    ptr.obj = obj
+    ptr.__self_ptr = <void *>ptr
+    ptr.__obj = obj
 
-    ref.count = 1
-    ref.weak_count = 0
-    ref.destroy_fn = destroy_fn
-    ref.free_fn = free_fn
+    ref.__count = 1
+    ref.__weak_count = 0
+    ref.__destroy_fn = destroy_fn
+    ref.__free_fn = free_fn
 
-    ptr.ref = ref
+    ptr.__ref = ref
 
 
 cdef void *ptr_get(const SharedPtr *ptr) noexcept nogil:
-    if <void *>ptr != ptr.self_ptr:
+    if <void *>ptr != ptr.__self_ptr:
         with gil:
             print('[ERROR] ptr_get on invalid pointer')
         exit(-1)
 
-    return ptr.obj
+    return ptr.__obj
 
 
 cdef void ptr_clone(SharedPtr *new_ptr, const SharedPtr *ptr) noexcept nogil:
-    new_ptr.self_ptr = <void *>new_ptr
-    new_ptr.obj = ptr.obj
-    new_ptr.ref = ptr.ref
-    new_ptr.ref.count += 1
+    new_ptr.__self_ptr = <void *>new_ptr
+    new_ptr.__obj = ptr.__obj
+    new_ptr.__ref = ptr.__ref
+    new_ptr.__ref.__count += 1
 
 
 cdef void ptr_free(SharedPtr *ptr) noexcept nogil:
-    if <void *>ptr != ptr.self_ptr:
+    if <void *>ptr != ptr.__self_ptr:
         with gil:
             print('[ERROR] ptr_free on invalid pointer')
         exit(-1)
     
-    if ptr.obj == NULL:
+    if ptr.__obj == NULL:
         return
 
-    if ptr.ref.count == 0:
+    if ptr.__ref.__count == 0:
         with gil:
             print('[ERROR] double free shared pointer')
         exit(-1)
     
-    ptr.ref.count -= 1
+    ptr.__ref.__count -= 1
 
-    if ptr.ref.count == 0:
-        ptr.ref.destroy_fn(ptr.obj)
+    if ptr.__ref.__count == 0:
+        ptr.__ref.__destroy_fn(ptr.__obj)
 
-        if ptr.ref.weak_count == 0:
-            ptr.ref.free_fn(ptr.obj)
+        if ptr.__ref.__weak_count == 0:
+            ptr.__ref.__free_fn(ptr.__obj)
 
 
 cdef void make_weak_ptr(WeakPtr *new_ptr, const SharedPtr *ptr) noexcept nogil:
-    new_ptr.self_ptr = <void *>new_ptr
-    new_ptr.obj = ptr.obj
-    new_ptr.ref = ptr.ref
-    new_ptr.ref.weak_count += 1
+    new_ptr.__self_ptr = <void *>new_ptr
+    new_ptr.__obj = ptr.__obj
+    new_ptr.__ref = ptr.__ref
+    new_ptr.__ref.__weak_count += 1
 
 
 cdef void weak_ptr_clone(SharedPtr *new_ptr, const WeakPtr *ptr) noexcept nogil:
-    new_ptr.self_ptr = <void *>new_ptr
+    new_ptr.__self_ptr = <void *>new_ptr
 
-    if ptr.ref.count == 0:
-        new_ptr.obj = NULL
+    if ptr.__ref.__count == 0:
+        new_ptr.__obj = NULL
         return
     
-    ptr.ref.count += 1
-    new_ptr.ref = ptr.ref
-    new_ptr.obj = ptr.obj
+    ptr.__ref.__count += 1
+    new_ptr.__ref = ptr.__ref
+    new_ptr.__obj = ptr.__obj
 
 
 cdef void weak_ptr_free(WeakPtr *ptr) noexcept nogil:
-    if <void *>ptr != ptr.self_ptr:
+    if <void *>ptr != ptr.__self_ptr:
         with gil:
             print('[ERROR] weak_ptr_free on invalid weak pointer')
         exit(-1)
     
-    if ptr.ref.weak_count == 0:
+    if ptr.__ref.__weak_count == 0:
         with gil:
             print('[ERROR] double free on weak pointer')
         exit(-1)
 
-    ptr.ref.weak_count -= 1
-    if ptr.ref.count == 0 and ptr.ref.weak_count == 0:
-        ptr.ref.free_fn(ptr.obj)
+    ptr.__ref.__weak_count -= 1
+    if ptr.__ref.__count == 0 and ptr.__ref.__weak_count == 0:
+        ptr.__ref.__free_fn(ptr.__obj)
 
 
 # Testing

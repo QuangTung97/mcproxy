@@ -1,89 +1,52 @@
 from libc.string cimport memcpy
 
 from cutil cimport alloc_object, free_object
-from cutil cimport bytes_equal
+from cutil cimport RefCounter, SharedPtr, make_shared, ptr_free
 from cpool cimport ObjectPool
 
 
-cdef ObjectPool conn_pool = ObjectPool(1024) # pool of connections
+cdef ObjectPool client_pool = ObjectPool(1024)
 
 
-def get_conn_pool():
-    return conn_pool
+def get_client_pool():
+    return client_pool
 
 
-DEF MAX_DATA = 4096
+cdef struct ClientPtr:
+    SharedPtr __ptr
 
 
-cdef struct Conn:
-    void *conn_ptr
-    int index
-    char resp_data[MAX_DATA]
-    int resp_len
+cdef void client_ptr_destroy(void *obj) noexcept nogil:
+    pass
 
 
-cdef Conn *make_conn(int index, void *conn_ptr) noexcept:
-    cdef Conn *c = <Conn *>alloc_object(sizeof(Conn))
-    c.index = index
-    c.conn_ptr = conn_ptr
-    c.resp_len = 0
-    return c
+cdef void client_ptr_free(void *obj) noexcept nogil:
+    with gil:
+        d = <ClientData>obj
+        d.conn.close()
+        client_pool.free(d.pool_index)
 
 
-cdef object get_conn(const Conn *c) noexcept:
-    return <object>c.conn_ptr
+cdef class ClientData:
+    cdef object conn
+    cdef RefCounter ref
+    cdef int pool_index
 
+    def __cinit__(self, object conn):
+        self.conn = conn
+        self.pool_index = client_pool.put(self)
+    
 
-cdef void free_conn(Conn *c) noexcept:
-    c.conn_ptr = NULL
-    conn_pool.free(c.index)
-
-    free_object(<void *>c, sizeof(Conn))
-
-
-cdef int conn_write(Conn *conn, const char *data):
-    cdef bytes b = data
-    cdef object c = get_conn(conn)
-    return c.send(b)
-
-
-cdef int conn_read(Conn *conn):
-    cdef object c = get_conn(conn)
-    d = c.recv(MAX_DATA)
-    cdef const char *data = d
-    cdef int n = len(d)
-    memcpy(conn.resp_data, data, n)
-    conn.resp_len += n
-    return n
-
-
-
-cdef bytes version_prefix = b'VERSION '
-cdef int version_prefix_len = len(version_prefix)
-cdef const char *version_c = version_prefix
-
-cdef bytes conn_version(Conn *conn):
-    cdef int n = conn_write(conn, 'version\r\n')
-    n = conn_read(conn)
-    if n > version_prefix_len:
-        if bytes_equal(conn.resp_data, version_prefix_len, version_c, version_prefix_len):
-            return conn.resp_data[version_prefix_len:n - 2]
+    cdef void get_ptr(self, ClientPtr *ptr) noexcept nogil:
+        make_shared(&ptr.__ptr, <void *>self, &self.ref, client_ptr_destroy, client_ptr_free)
 
 
 cdef class Client:
-    cdef Conn *conn
+    cdef ClientPtr ptr
 
-    def __cinit__(self, object new_conn):
-        cdef object conn = new_conn()
-
-        cdef int index = conn_pool.put(conn)
-        self.conn = make_conn(index, <void *>conn)
-
+    def __cinit__(self, object conn):
+        cdef ClientData client_data = ClientData(conn)
+        client_data.get_ptr(&self.ptr)
+    
     def __dealloc__(self):
-        if self.conn:
-            c = get_conn(self.conn)
-            free_conn(self.conn)
-            c.close()
-
-    cpdef str version(self):
-        return conn_version(self.conn).decode()
+        ptr_free(&self.ptr.__ptr)
