@@ -1,7 +1,7 @@
 from libc.string cimport memcpy
 
 from cutil cimport alloc_object, free_object
-from cutil cimport RefCounter, SharedPtr, make_shared, ptr_free
+from cutil cimport RefCounter, SharedPtr, make_shared, ptr_free, ptr_get, ptr_clone
 from cpool cimport ObjectPool
 
 
@@ -14,6 +14,10 @@ def get_client_pool():
 
 cdef struct ClientPtr:
     SharedPtr __ptr
+
+
+cdef ClientData client_ptr_get(ClientPtr *ptr) noexcept:
+    return <ClientData>ptr_get(&ptr.__ptr)
 
 
 cdef void client_ptr_destroy(void *obj) noexcept nogil:
@@ -48,5 +52,17 @@ cdef class Client:
         cdef ClientData client_data = ClientData(conn)
         client_data.get_ptr(&self.ptr)
     
+    cpdef Pipeline pipeline(self):
+        cdef Pipeline p = Pipeline()
+        ptr_clone(&p.ptr.__ptr, &self.ptr.__ptr)
+        return p
+    
+    def __dealloc__(self):
+        ptr_free(&self.ptr.__ptr)
+
+
+cdef class Pipeline:
+    cdef ClientPtr ptr
+
     def __dealloc__(self):
         ptr_free(&self.ptr.__ptr)

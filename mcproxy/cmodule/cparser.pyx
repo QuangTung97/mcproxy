@@ -28,17 +28,6 @@ cdef enum ParserState:
     P_HANDLE_LF
 
 
-cdef enum ParserCmd:
-    P_NO_CMD = 0
-    P_CMD_VERSION
-    P_CMD_MG
-    P_CMD_HD
-    P_CMD_NS
-    P_CMD_EX
-    P_CMD_NF
-
-
-
 cdef struct Parser:
     ParserState state
 
@@ -396,6 +385,11 @@ cdef bytes parser_get_string(Parser *p) noexcept:
     return p.tmp_data[:p.tmp_data_len]
 
 
+cdef bytes parser_get_data(Parser *p) noexcept:
+    cdef bytes b = p.response_data[:p.response_data_len]
+    return b
+
+
 cdef Parser *new_parser():
     cdef Parser *p = <Parser *>alloc_object(sizeof(Parser))
     if p == NULL:
@@ -472,5 +466,4 @@ cdef class ParserTest:
     
     def get_data(self):
         cdef Parser *p = self.p
-        cdef bytes b = p.response_data[:p.response_data_len]
-        return b
+        return parser_get_data(p)

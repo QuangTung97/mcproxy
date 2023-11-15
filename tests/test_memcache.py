@@ -41,3 +41,22 @@ class TestMemcache(unittest.TestCase):
         self.assertEqual([0], pool.get_free_indices())
 
         self.assertEqual(0, cutil.py_get_mem())
+
+    def test_new_pipeline(self) -> None:
+        c = cmem.Client(self.new_socket())
+        p = c.pipeline()
+        self.assertIsNotNone(p)
+
+        pool = cmem.get_client_pool()
+        conns = pool.get_objects()
+
+        self.assertEqual(1, len(conns))
+        self.assertIsNotNone(conns[0])
+
+        del c
+        self.assertIsNotNone(conns[0])
+
+        del p
+        self.assertEqual([None], conns)
+
+        self.assertEqual(0, cutil.py_get_mem())
