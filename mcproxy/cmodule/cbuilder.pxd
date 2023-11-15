@@ -1,8 +1,15 @@
 cdef struct Builder
 
+
+DEF WRITE_ERROR = -1
+DEF WRITE_OK = 0
+DEF WRITE_FULL = 1
+
+
 ctypedef int (*write_func)(void *obj, const char *data, int n) noexcept
 
-cdef Builder *make_builder(void *write_obj, write_func write_fn, int limit) noexcept nogil
+
+cdef Builder *new_builder(void *write_obj, write_func write_fn, int limit) noexcept nogil
 
 
 cdef struct MGetCmd:

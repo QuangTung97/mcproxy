@@ -17,7 +17,7 @@ cdef struct Builder:
     write_func write_fn
 
 
-cdef Builder *make_builder(void *write_obj, write_func write_fn, int limit) noexcept nogil:
+cdef Builder *new_builder(void *write_obj, write_func write_fn, int limit) noexcept nogil:
     cdef Builder *b = <Builder *>alloc_object(sizeof(Builder))
 
     b.buf_len = 0
@@ -202,7 +202,7 @@ cdef class BuilderTest:
 
     def __cinit__(self, object write_fn, int limit):
         self.write_obj = write_fn
-        self.b = make_builder(<void *>write_fn, python_write_func, limit)
+        self.b = new_builder(<void *>write_fn, python_write_func, limit)
 
     def __dealloc__(self):
         builder_free(self.b)
@@ -233,4 +233,3 @@ cdef class BuilderTest:
     
     def finish(self):
         return builder_finish(self.b)
-        
