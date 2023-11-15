@@ -3,6 +3,7 @@ from libc.string cimport memcpy
 from cutil cimport alloc_object, free_object
 from cutil cimport RefCounter, SharedPtr, make_shared, ptr_free, ptr_get, ptr_clone
 from cpool cimport ObjectPool
+from cparser cimport Parser, new_parser, parser_free
 
 
 cdef ObjectPool client_pool = ObjectPool(1024)
@@ -27,6 +28,7 @@ cdef void client_ptr_destroy(void *obj) noexcept nogil:
 cdef void client_ptr_free(void *obj) noexcept nogil:
     with gil:
         d = <ClientData>obj
+        parser_free(d.parser)
         d.conn.close()
         client_pool.free(d.pool_index)
 
@@ -36,9 +38,12 @@ cdef class ClientData:
     cdef RefCounter ref
     cdef int pool_index
 
+    cdef Parser *parser
+
     def __cinit__(self, object conn):
         self.conn = conn
         self.pool_index = client_pool.put(self)
+        self.parser = new_parser()
     
 
     cdef void get_ptr(self, ClientPtr *ptr) noexcept nogil:

@@ -390,10 +390,8 @@ cdef bytes parser_get_data(Parser *p) noexcept:
     return b
 
 
-cdef Parser *new_parser():
+cdef Parser *new_parser() noexcept nogil:
     cdef Parser *p = <Parser *>alloc_object(sizeof(Parser))
-    if p == NULL:
-        raise MemoryError('python OOM')
 
     p.state = ParserState.P_INIT
 
@@ -416,7 +414,7 @@ cdef Parser *new_parser():
     return p
 
 
-cdef void parser_free(Parser *p):
+cdef void parser_free(Parser *p) noexcept nogil:
     parser_free_response(p)
     free_object(<void *>p, sizeof(Parser))
 

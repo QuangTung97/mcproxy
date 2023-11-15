@@ -1,8 +1,8 @@
 cdef struct Parser
 
-cdef Parser *new_parser()
+cdef Parser *new_parser() noexcept nogil
 
-cdef void parser_free(Parser *p)
+cdef void parser_free(Parser *p) noexcept nogil
 
 cdef int parser_handle(Parser *p, const char *data, int n) noexcept nogil
 
