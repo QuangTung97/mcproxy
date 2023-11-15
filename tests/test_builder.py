@@ -14,7 +14,7 @@ class TestBuilder(unittest.TestCase):
 
     def write_func(self, data: bytes) -> int:
         self.write_list.append(data)
-        return 0
+        return len(data)
 
     def test_empty(self) -> None:
         b = cbuilder.BuilderTest(self.write_func, 1024)
@@ -24,6 +24,8 @@ class TestBuilder(unittest.TestCase):
     def test_add_mget(self) -> None:
         b = cbuilder.BuilderTest(self.write_func, 1024)
 
+        cmd1 = b'mg key01 v\r\n'
+
         ret = b.add_mget(b'key01')
         self.assertEqual(0, ret)
 
@@ -32,7 +34,7 @@ class TestBuilder(unittest.TestCase):
         ret = b.finish()
         self.assertEqual(0, ret)
 
-        self.assertEqual([b'mg key01 v\r\n'], self.write_list)
+        self.assertEqual([cmd1], self.write_list)
 
         del b
         self.assertEqual(0, cutil.py_get_mem())

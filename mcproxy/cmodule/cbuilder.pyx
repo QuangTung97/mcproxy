@@ -1,4 +1,4 @@
-from libc.string cimport memcpy
+from libc.string cimport memcpy, memmove
 
 import cython
 
@@ -15,6 +15,9 @@ cdef struct Builder:
 
     void *write_obj
     write_func write_fn
+
+    const char *current_set_data
+    int current_set_len
 
 
 cdef Builder *new_builder(void *write_obj, write_func write_fn, int limit) noexcept nogil:
@@ -33,36 +36,13 @@ cdef void builder_free(Builder *b) noexcept nogil:
     free_object(b, sizeof(Builder))
 
 
-cdef int builder_append(Builder *b, const char *data, int n) noexcept nogil:
-    cdef int data_size
-    cdef int reset
-    cdef int remaining
-
-    while n > 0:
-        reset = False
-        data_size = n
-        remaining = b.write_limit - b.buf_len
-
-        if data_size > remaining:
-            reset = True
-            data_size = remaining
-
-        memcpy(b.buf + b.buf_len, data, data_size)
-
-        data += data_size
-        n -= data_size
-        b.buf_len += data_size
-
-        if reset:
-            ret = builder_flush(b)
-            if ret:
-                return ret
-
-    return 0
+cdef void builder_append(Builder *b, const char *data, int n) noexcept nogil:
+    memcpy(b.buf + b.buf_len, data, n)
+    b.buf_len += n
 
 
 @cython.cdivision
-cdef int builder_append_num(Builder *b, size_t num) noexcept nogil:
+cdef void builder_append_num(Builder *b, size_t num) noexcept nogil:
     cdef char buf[32]
     cdef int num_len = 0
     cdef char zero = '0'
@@ -70,7 +50,8 @@ cdef int builder_append_num(Builder *b, size_t num) noexcept nogil:
     cdef int i
 
     if num <= 0:
-        return builder_append(b, '0', 1)
+        builder_append(b, '0', 1)
+        return
 
     while num > 0:
         ch = (num % 10) + zero
@@ -82,109 +63,102 @@ cdef int builder_append_num(Builder *b, size_t num) noexcept nogil:
     for i in range(num_len // 2):
         buf[i], buf[num_len - 1 - i] = buf[num_len - 1 - i], buf[i]
     
-    return builder_append(b, buf, num_len)
+    builder_append(b, buf, num_len)
 
 
-cdef int builder_add_mget(Builder *b, MGetCmd cmd) noexcept nogil:
-    cdef int ret
+cdef int builder_internal_do_flush(Builder *b) noexcept nogil:
+    cdef int n = builder_flush(b)
+    memmove(b.buf, b.buf + n, b.buf_len - n)
+    b.buf_len -= n
+    return n
 
-    ret = builder_append(b, 'mg ', 3)
-    if ret:
-        return ret
 
-    ret = builder_append(b, cmd.key, cmd.key_len)
-    if ret:
-        return ret
+cdef WriteStatus builder_write_if_full(Builder *b) noexcept nogil:
+    if b.buf_len > b.write_limit:
+        builder_internal_do_flush(b) # TODO Check Len
+    return WriteStatus.WS_OK
+
+
+cdef WriteStatus builder_add_mget(Builder *b, MGetCmd cmd) noexcept nogil:
+    builder_append(b, 'mg ', 3)
+    builder_append(b, cmd.key, cmd.key_len)
 
     if cmd.N > 0:
-        ret = builder_append(b, ' N', 2)
-        if ret:
-            return ret
+        builder_append(b, ' N', 2)
+        builder_append_num(b, cmd.N)
 
-        ret = builder_append_num(b, cmd.N)
-        if ret:
-            return ret
+    builder_append(b, ' v\r\n', 4)
 
-    ret = builder_append(b, ' v\r\n', 4)
-    if ret:
-        return ret
-
-    return 0
+    return builder_write_if_full(b)
 
 
-cdef int builder_add_mset(Builder *b, MSetCmd cmd) noexcept nogil:
-    cdef int ret
-    ret = builder_append(b, 'ms ', 3)
-    if ret:
-        return ret
+cdef WriteStatus builder_write_set_data(Builder *b) noexcept nogil:
+    cdef int n
+    cdef int remaining
+
+    # builder_write_if_full(b) # TODO Check Status
+
+    while b.current_set_len > 0:
+        n = b.current_set_len
+        remaining = b.write_limit - b.buf_len
+        if n > remaining:
+            n = remaining
+        
+        builder_append(b, b.current_set_data, n)
+
+        b.current_set_data += n
+        b.current_set_len -= n
+
+        if n == remaining:
+            builder_internal_do_flush(b) # TODO Check Len
     
-    ret = builder_append(b, cmd.key, cmd.key_len)
-    if ret:
-        return ret
+    builder_append(b, '\r\n', 2)
+    
+    return WriteStatus.WS_OK
 
-    ret = builder_append(b, ' ', 1)
-    if ret:
-        return ret
 
-    ret = builder_append_num(b, cmd.data_len)
-    if ret:
-        return ret
+cdef WriteStatus builder_add_mset(Builder *b, MSetCmd cmd) noexcept nogil:
+    builder_append(b, 'ms ', 3)
+    builder_append(b, cmd.key, cmd.key_len)
+    builder_append(b, ' ', 1)
+
+    builder_append_num(b, cmd.data_len)
     
     if cmd.cas > 0:
-        ret = builder_append(b, ' C', 2)
-        if ret:
-            return ret
-
-        ret = builder_append_num(b, cmd.cas)
-        if ret:
-            return ret
+        builder_append(b, ' C', 2)
+        builder_append_num(b, cmd.cas)
 
 
-    ret = builder_append(b, '\r\n', 2)
-    if ret:
-        return ret
+    builder_append(b, '\r\n', 2)
 
-    ret = builder_append(b, cmd.data, cmd.data_len)
-    if ret:
-        return ret
+    b.current_set_data = cmd.data
+    b.current_set_len = cmd.data_len
 
-    ret = builder_append(b, '\r\n', 2)
-    if ret:
-        return ret
-
-    return 0
+    return builder_write_set_data(b)
 
 
-cdef int builder_add_mdel(Builder *b, MDelCmd cmd) noexcept nogil:
-    cdef int ret
-
-    ret = builder_append(b, 'md ', 3)
-    if ret:
-        return ret
-
-    ret = builder_append(b, cmd.key, cmd.key_len)
-    if ret:
-        return ret
-
-    ret = builder_append(b, '\r\n', 2)
-    if ret:
-        return ret
-    
-    return 0
+cdef WriteStatus builder_add_mdel(Builder *b, MDelCmd cmd) noexcept nogil:
+    builder_append(b, 'md ', 3)
+    builder_append(b, cmd.key, cmd.key_len)
+    builder_append(b, '\r\n', 2)
+    return builder_write_if_full(b)
 
 
 cdef int builder_flush(Builder *b) noexcept nogil:
     cdef int ret
+    cdef int n = b.buf_len
+
+    if n > b.write_limit:
+        n = b.write_limit
+
     with gil:
-        ret = b.write_fn(b.write_obj, b.buf, b.buf_len)
-        b.buf_len = 0
+        ret = b.write_fn(b.write_obj, b.buf, n)
     return ret
 
 
-cdef int builder_finish(Builder *b) noexcept nogil:
-    if b.buf_len > 0:
-        return builder_flush(b)
-    return 0
+cdef WriteStatus builder_finish(Builder *b) noexcept nogil:
+    builder_internal_do_flush(b)
+    return WriteStatus.WS_OK
 
 
 cdef int python_write_func(void *obj, const char *data, int n) noexcept:

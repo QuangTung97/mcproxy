@@ -1,11 +1,6 @@
 cdef struct Builder
 
 
-DEF WRITE_ERROR = -1
-DEF WRITE_OK = 0
-DEF WRITE_FULL = 1
-
-
 ctypedef int (*write_func)(void *obj, const char *data, int n) noexcept
 
 
@@ -33,12 +28,18 @@ cdef struct MDelCmd:
     int key_len
 
 
-cdef int builder_add_mget(Builder *b, MGetCmd cmd) noexcept nogil
+cdef enum WriteStatus:
+    WS_OK = 0
+    WS_FULL = 1
+    WS_ERROR = -1
 
-cdef int builder_add_mset(Builder *b, MSetCmd cmd) noexcept nogil
 
-cdef int builder_add_mdel(Builder *b, MDelCmd cmd) noexcept nogil
+cdef WriteStatus builder_add_mget(Builder *b, MGetCmd cmd) noexcept nogil
 
-cdef int builder_finish(Builder *b) noexcept nogil
+cdef WriteStatus builder_add_mset(Builder *b, MSetCmd cmd) noexcept nogil
+
+cdef WriteStatus builder_add_mdel(Builder *b, MDelCmd cmd) noexcept nogil
+
+cdef WriteStatus builder_finish(Builder *b) noexcept nogil
 
 cdef void builder_free(Builder *b) noexcept nogil
