@@ -8,9 +8,6 @@ from cutil cimport alloc_object, free_object
 DEF MAX_DATA = 4096
 
 
-ctypedef int (*write_func)(void *obj, const char *data, int n) noexcept
-
-
 cdef struct Builder:
     char buf[2 * MAX_DATA]
     int buf_len
@@ -18,27 +15,6 @@ cdef struct Builder:
 
     void *write_obj
     write_func write_fn
-
-
-cdef struct MGetCmd:
-    const char *key # non owning pointer
-    int key_len
-    int N
-
-
-cdef struct MSetCmd:
-    const char *key # non owning pointer
-    int key_len
-
-    const char *data # non owning pointer
-    int data_len
-
-    size_t cas
-
-
-cdef struct MDelCmd:
-    const char *key # non owning pointer
-    int key_len
 
 
 cdef Builder *make_builder(void *write_obj, write_func write_fn, int limit) noexcept nogil:
@@ -53,7 +29,7 @@ cdef Builder *make_builder(void *write_obj, write_func write_fn, int limit) noex
     return b
 
 
-cdef void free_builder(Builder *b) noexcept nogil:
+cdef void builder_free(Builder *b) noexcept nogil:
     free_object(b, sizeof(Builder))
 
 
@@ -229,7 +205,7 @@ cdef class BuilderTest:
         self.b = make_builder(<void *>write_fn, python_write_func, limit)
 
     def __dealloc__(self):
-        free_builder(self.b)
+        builder_free(self.b)
     
     def add_mget(self, bytes key, int N = 0):
         cdef const char *ptr = key
